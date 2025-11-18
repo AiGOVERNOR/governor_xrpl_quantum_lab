@@ -1,0 +1,9 @@
+{
+  "agents": [
+    {"name": "infra_intelligence", "class": "InfraIntelligenceAgent", "enabled": true, "role": "infrastructure"},
+    {"name": "banking_foundation", "class": "BankingAgent", "enabled": true, "role": "banking"},
+    {"name": "mortgage_passport", "class": "MortgageAgent", "enabled": true, "role": "mortgage"},
+    {"name": "loan_oracle", "class": "LoanAgent", "enabled": true, "role": "loans"},
+    {"name": "fee_gas_router", "class": "FeeAgent", "enabled": true, "role": "fees"}
+  ]
+}
