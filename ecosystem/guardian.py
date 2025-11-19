@@ -1,249 +1,215 @@
+"""
+Guardian – VQM Network Policy + Fee Pressure Intelligence
+
+This module analyzes XRPL network_state and produces:
+- Mesh-level mode (normal / fee_pressure / extreme_fee_pressure)
+- A human-oriented LLM-style explanation (no external calls)
+- A structured network_policy payload
+- An AI VQM Fee Pressure Reducer plan (local-only mitigation)
+
+NO transactions are submitted.
+NO trading is performed.
+"""
+
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Literal
-from uuid import uuid4
+from typing import Any, Dict
 
-
-GuardianMode = Literal["calm", "normal", "fee_pressure", "stress", "attack"]
-
-
-@dataclass
-class GuardianPolicy:
-    """
-    A small, serializable description of the guardian's view
-    of the current XRPL network condition.
-    """
-
-    id: str
-    category: str
-    mode: GuardianMode
-    created_at: str
-    status: str
-    payload: Dict[str, Any]
+from ecosystem.telemetry import (
+    classify_fee_band,
+    make_guardian_attestation,
+)
+from ecosystem.fee_reducer import FeePressureReducer
 
 
 @dataclass
-class GuardianForgeResult:
-    """
-    A "what to change" suggestion set. This is NOT executable
-    by itself – just a structured draft for human / higher-level
-    review.
-    """
-
-    upgrade_id: str
-    status: str
-    inferred_mode: GuardianMode
-    suggested_changes: list[str]
+class GuardianConfig:
+    version: str = "1.3.0"  # Level-3+ with Fee Pressure Reducer
+    attention_threshold_drops: int = 2000
+    extreme_threshold_drops: int = 5000
 
 
-class XRPLGuardian:
-    """
-    XRPL VQM Guardian
+class GuardianVQMPipeline:
+    def __init__(self, config: GuardianConfig | None = None) -> None:
+        self.config = config or GuardianConfig()
+        self._fee_reducer = FeePressureReducer()
 
-    Reads a fee/network snapshot and classifies the XRPL into one of:
-    - calm
-    - normal
-    - fee_pressure
-    - stress
-    - attack
+    @property
+    def version(self) -> str:
+        return self.config.version
 
-    Then produces:
-    - policy: guardian's formal stance
-    - llm: human-facing explanation stub
-    - forge: structured suggestions for infra / protocol tuning
+    # ---------------------------
+    # Core assessment
+    # ---------------------------
 
-    This class is intentionally *pure* and *stateless*:
-    it just transforms an input snapshot into a JSON-friendly dict.
-    """
-
-    def _now_iso(self) -> str:
-        return datetime.now(timezone.utc).isoformat()
-
-    # ---------- classification ----------
-
-    def classify_mode(self, snapshot: Dict[str, Any]) -> GuardianMode:
+    def assess(self, network_state: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Map a raw XRPL fee snapshot into a qualitative regime.
+        Entry point used by the orchestrator.
+
+        Args:
+            network_state: dict with:
+              - ledger_seq
+              - txn_base_fee
+              - txn_median_fee
+              - recommended_fee_drops
+              - load_factor
+
+        Returns:
+            dict with keys:
+              - mesh
+              - policy
+              - llm
+              - forge
+              - reducer
         """
+        median = int(network_state.get("txn_median_fee", 10) or 10)
+        load_factor = float(network_state.get("load_factor", 1.0) or 1.0)
+        rec_fee = int(network_state.get("recommended_fee_drops", median) or median)
 
-        load_factor = float(snapshot.get("load_factor", 1.0))
-        median_fee = int(snapshot.get("txn_median_fee", 10))
-        base_fee = int(snapshot.get("txn_base_fee", 10))
+        band = classify_fee_band(median_fee_drops=median, load_factor=load_factor)
+        band_label = band["band"]
 
-        # Extremely high fee or load: assume attack or severe stress.
-        if load_factor >= 5.0 or median_fee >= 20_000:
-            return "attack"
+        if median >= self.config.extreme_threshold_drops:
+            mode = "extreme_fee_pressure"
+            status = "attention_required"
+        elif median >= self.config.attention_threshold_drops:
+            mode = "fee_pressure"
+            status = "attention_required"
+        else:
+            mode = "normal"
+            status = "compliant"
 
-        # Strong stress region where fees and load are elevated.
-        if load_factor >= 3.0 or median_fee >= 10_000:
-            return "stress"
-
-        # Noticeable fee pressure for ordinary users.
-        if median_fee >= 5_000:
-            return "fee_pressure"
-
-        # Very relaxed: low load and median close to base.
-        if load_factor <= 1.0 and median_fee <= base_fee * 2:
-            return "calm"
-
-        # Catch-all default.
-        return "normal"
-
-    # ---------- policy + explanation ----------
-
-    def _build_policy(self, mode: GuardianMode, snapshot: Dict[str, Any]) -> GuardianPolicy:
-        policy_id = str(uuid4())
-
-        payload = {
-            "ledger": snapshot.get("ledger_seq"),
-            "load_factor": snapshot.get("load_factor"),
-            "recommended_fee": snapshot.get("recommended_fee_drops"),
-            "txn_base_fee": snapshot.get("txn_base_fee"),
-            "txn_median_fee": snapshot.get("txn_median_fee"),
+        # Mesh view (compact)
+        mesh_state = {
+            "ledger": network_state.get("ledger_seq"),
+            "load_factor": load_factor,
+            "fee_drops": median,
+            "mode": mode,
         }
 
-        status = "compliant"
-        if mode in ("fee_pressure", "stress", "attack"):
-            status = "attention_required"
+        # Policy payload
+        policy = {
+            "id": self._make_policy_id(),
+            "category": "network_policy",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "mode": mode,
+            "status": status,
+            "payload": {
+                "ledger": network_state.get("ledger_seq"),
+                "load_factor": load_factor,
+                "txn_base_fee": network_state.get("txn_base_fee"),
+                "txn_median_fee": median,
+                "recommended_fee": rec_fee,
+                "fee_band": band,
+            },
+        }
 
-        return GuardianPolicy(
-            id=policy_id,
-            category="network_policy",
-            mode=mode,
-            created_at=self._now_iso(),
-            status=status,
-            payload=payload,
+        # Forge: what upgrades/improvements should the ecosystem consider?
+        forge = self._build_forge(mode=mode, band=band, median=median)
+
+        # LLM-style explanation (local, hand-written prompt-free)
+        llm = self._build_llm_view(mode, network_state, band, policy)
+
+        # Fee Pressure Reducer (local-only)
+        reducer_plan = self._fee_reducer.build_plan(
+            network_state=network_state,
+            fee_band=band,
+            guardian_policy=policy,
         )
 
-    def _build_llm_stub(self, mode: GuardianMode, snapshot: Dict[str, Any], policy: GuardianPolicy) -> Dict[str, Any]:
-        """
-        Human-facing explanation stub; in a real system this could be the
-        prompt + summary basis for an LLM, but here it's just structured
-        text for observability.
-        """
+        # Attestation (for logs / future auditors)
+        attestation = make_guardian_attestation(
+            network_state=network_state,
+            mode=mode,
+            recommended_fee=rec_fee,
+            extra={"band": band, "reducer_mode": reducer_plan["mode"]},
+        )
 
-        ledger = snapshot.get("ledger_seq")
-        load_factor = snapshot.get("load_factor")
-        median_fee = snapshot.get("txn_median_fee")
-        rec_fee = snapshot.get("recommended_fee_drops")
+        return {
+            "mesh": mesh_state,
+            "policy": policy,
+            "forge": forge,
+            "llm": llm,
+            "reducer": reducer_plan,
+            "attestation": attestation,
+        }
 
-        if mode == "calm":
+    # ---------------------------
+    # Internal helpers
+    # ---------------------------
+
+    def _make_policy_id(self) -> str:
+        # Simple time-based ID; no external libs.
+        return datetime.now(timezone.utc).strftime("POLICY-%Y%m%d-%H%M%S-%f")
+
+    def _build_forge(self, mode: str, band: Dict[str, Any], median: int) -> Dict[str, Any]:
+        suggested_changes: list[str] = []
+
+        if mode == "normal":
+            suggested_changes.extend([
+                "Maintain current fee bands; monitor for trend shifts.",
+                "Consider enabling additional AI/VQM telemetry for research.",
+            ])
+        elif mode == "fee_pressure":
+            suggested_changes.extend([
+                "Tighten fee bands for non-essential flows.",
+                "Prioritize essential, short-lived transactions.",
+                "Review throughput limits on high-volume integrations.",
+            ])
+        else:  # extreme_fee_pressure
+            suggested_changes.extend([
+                "Freeze all non-critical protocol upgrades until fees stabilize.",
+                "Evaluate whether certain flows can be re-timed to off-peak hours.",
+                "Perform a deeper investigation into traffic sources correlated with spikes.",
+            ])
+
+        return {
+            "status": "draft",
+            "upgrade_id": self._make_policy_id(),
+            "inferred_mode": mode,
+            "fee_band": band,
+            "suggested_changes": suggested_changes,
+        }
+
+    def _build_llm_view(
+        self,
+        mode: str,
+        network_state: Dict[str, Any],
+        band: Dict[str, Any],
+        policy: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        median = int(network_state.get("txn_median_fee", 10) or 10)
+        load_factor = float(network_state.get("load_factor", 1.0) or 1.0)
+        rec_fee = int(network_state.get("recommended_fee_drops", median) or median)
+
+        if mode == "normal":
             explanation = (
-                "XRPL appears calm: low load, fees near base. "
-                "Safe to keep standard policies; monitor for drift."
-            )
-        elif mode == "normal":
-            explanation = (
-                "XRPL in normal regime: healthy throughput with ordinary fees. "
-                "No aggressive adjustments required."
+                f"Network appears healthy with median fee {median} drops and load_factor={load_factor}. "
+                f"Fee band classified as '{band['band']}'. No special actions required beyond observation."
             )
         elif mode == "fee_pressure":
             explanation = (
-                "Fee pressure detected: median fees elevated. "
-                "Recommend adjusting retail fee bands and prioritizing essential flows."
+                f"Fee pressure detected: median fees elevated to {median} drops at load_factor={load_factor}. "
+                f"Band '{band['band']}' suggests prioritizing essential flows and tuning fee bands. "
+                f"Recommended fee for planning is {rec_fee} drops."
             )
-        elif mode == "stress":
+        else:
             explanation = (
-                "Network stress regime: load and/or fees significantly elevated. "
-                "Throttle non-essential flows and increase monitoring."
-            )
-        else:  # attack
-            explanation = (
-                "Severe regime (possible attack or extreme congestion). "
-                "Restrict non-essential activity and enforce conservative policies."
+                f"Extreme fee pressure detected: median={median} drops, load_factor={load_factor}, "
+                f"band='{band['band']}'. Local systems should minimize their on-ledger footprint "
+                f"and treat the situation as a temporary stress epoch."
             )
 
         return {
-            "policy_id": policy.id,
             "mode": mode,
             "explanation": explanation,
             "human_context": (
-                f"Ledger {ledger}, load_factor={load_factor}, "
-                f"median_fee={median_fee} drops, recommended_fee={rec_fee} drops"
+                f"Ledger {network_state.get('ledger_seq')}, "
+                f"load_factor={load_factor}, "
+                f"median_fee={median} drops, "
+                f"recommended_fee={rec_fee} drops"
             ),
-        }
-
-    # ---------- forge suggestions ----------
-
-    def _build_forge(self, mode: GuardianMode, snapshot: Dict[str, Any]) -> GuardianForgeResult:
-        suggestions: list[str]
-
-        if mode == "calm":
-            suggestions = [
-                "Maintain current fee bands.",
-                "Consider experimenting with new retail/payment protocols.",
-            ]
-        elif mode == "normal":
-            suggestions = [
-                "Incrementally optimize protocol parameters.",
-                "Keep fee bands aligned with observed median.",
-            ]
-        elif mode == "fee_pressure":
-            suggestions = [
-                "Tighten fee band for non-essential flows.",
-                "Prefer simple/short-lived transactions over complex ones.",
-                "Review throughput caps on heavy users/integrations.",
-            ]
-        elif mode == "stress":
-            suggestions = [
-                "Throttle low-priority flows.",
-                "Increase safety margins on all protocol parameters.",
-                "Raise minimum recommended fee for optional flows.",
-            ]
-        else:  # attack
-            suggestions = [
-                "Enter defensive mode: only essential/payment-critical traffic.",
-                "Elevate minimum fees to discourage spam.",
-                "Increase monitoring and alerting thresholds.",
-            ]
-
-        return GuardianForgeResult(
-            upgrade_id=str(uuid4()),
-            status="draft",
-            inferred_mode=mode,
-            suggested_changes=suggestions,
-        )
-
-    # ---------- public API ----------
-
-    def guard(self, snapshot: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Main entry point.
-
-        Input:
-          snapshot: dict with fields like:
-            - ledger_seq
-            - txn_base_fee
-            - txn_median_fee
-            - recommended_fee_drops
-            - load_factor
-
-        Output:
-          {
-            "mesh": {...},
-            "policy": {...},
-            "llm": {...},
-            "forge": {...}
-          }
-        """
-
-        mode = self.classify_mode(snapshot)
-        policy = self._build_policy(mode, snapshot)
-        llm_stub = self._build_llm_stub(mode, snapshot, policy)
-        forge = self._build_forge(mode, snapshot)
-
-        mesh_view = {
-            "ledger": snapshot.get("ledger_seq"),
-            "load_factor": snapshot.get("load_factor"),
-            "fee_drops": snapshot.get("recommended_fee_drops"),
-            "mode": mode,
-        }
-
-        return {
-            "mesh": mesh_view,
-            "policy": asdict(policy),
-            "llm": llm_stub,
-            "forge": asdict(forge),
+            "policy_id": policy["id"],
         }
