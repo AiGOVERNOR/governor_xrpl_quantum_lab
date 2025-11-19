@@ -73,3 +73,11 @@ an editor opened by 'git commit'. Please make sure all processes
 are terminated then try again. If it still fails, a git process
 may have crashed in this repository earlier:
 remove the file manually to continue.
+fatal: cannot lock ref 'HEAD': is at c9d2840f244bf016b26b5922a1b5f8d83f6afbb0 but expected 503c75d60cb174062f2fe294d94c8cb000d8fe58
+[main c9d2840] Auto VQM commit — Ledger 100307490
+ 1 file changed, 8 insertions(+)
+To github.com:AiGOVERNOR/governor_xrpl_quantum_lab.git
+   503c75d..c9d2840  main -> main
+To github.com:AiGOVERNOR/governor_xrpl_quantum_lab.git
+ ! [remote rejected] main -> main (cannot lock ref 'refs/heads/main': is at c9d2840f244bf016b26b5922a1b5f8d83f6afbb0 but expected 503c75d60cb174062f2fe294d94c8cb000d8fe58)
+error: failed to push some refs to 'github.com:AiGOVERNOR/governor_xrpl_quantum_lab.git'
