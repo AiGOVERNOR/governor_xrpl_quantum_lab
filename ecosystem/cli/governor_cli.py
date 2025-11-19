@@ -1,23 +1,34 @@
 """
-Governor CLI entrypoint for the VQM Ecosystem.
+ecosystem.cli.governor_cli
 
-Attempts to use the extended Level 4–6 pipeline. If unavailable,
-falls back to the base orchestrator.
+CLI entrypoint for the VQM ecosystem.
+
+- Runs the latest available VQM pipeline (v4 if present, else base).
+- Enriches the output with VQM scoring metadata:
+  * scores.global_confidence
+  * per-tool score_meta.effective_score
 """
 
 import json
-from typing import Any, Dict
 
 try:
-    # Preferred: extended pipeline with Level 4/5/6 intelligence
-    from ecosystem.pipeline_v4 import run_vqm_cycle_v4 as run_vqm_cycle
+    # Preferred: upgraded pipeline with Guardian + Horizon
+    from ecosystem.pipeline_v4 import run_vqm_cycle_v4 as run_vqm_cycle  # type: ignore
 except Exception:
-    # Fallback: original orchestrator (Level 1–3)
+    # Fallback: base orchestrator pipeline
     from ecosystem.orchestrator import run_vqm_cycle  # type: ignore
+
+try:
+    from ecosystem.scoring import enrich_with_scores
+except Exception:
+    # Hard fallback: identity function if scoring is missing
+    def enrich_with_scores(state):
+        return state
 
 
 def main() -> None:
-    state: Dict[str, Any] = run_vqm_cycle()
+    state = run_vqm_cycle()
+    state = enrich_with_scores(state)
     print(json.dumps(state, indent=2, sort_keys=True))
 
 
