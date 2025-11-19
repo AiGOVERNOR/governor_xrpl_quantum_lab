@@ -1,0 +1,37 @@
+{
+  "config": {
+    "decay": 0.999,
+    "max_score": 3.0,
+    "min_score": 0.5
+  },
+  "scores": {
+    "escrow_milestone_tool": {
+      "category": "escrow",
+      "metadata": {
+        "description": "Milestone escrow protocol planner."
+      },
+      "score": 0.999
+    },
+    "fee_pressure_reducer": {
+      "category": "network_policy",
+      "metadata": {
+        "description": "AI-guided fee pressure reduction advisor."
+      },
+      "score": 0.999
+    },
+    "fee_vqm_tool": {
+      "category": "fee",
+      "metadata": {
+        "description": "Dynamic XRPL fee band advisor."
+      },
+      "score": 0.999
+    },
+    "stream_pay_tool": {
+      "category": "payment_protocol",
+      "metadata": {
+        "description": "XRPL StreamPay (salary/stream) protocol logic."
+      },
+      "score": 0.999
+    }
+  }
+}
