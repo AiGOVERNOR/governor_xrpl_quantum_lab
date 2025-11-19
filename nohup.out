@@ -436,3 +436,4 @@ xrpl_client.XRPLClientError: HTTP error talking to XRPL: HTTPSConnectionPool(hos
 [Autopush] Auto VQM commit — Ledger 100313985
 [Autopush] Auto VQM commit — Ledger 100314217
 Everything up-to-date
+bash: scripts/port_guardian_daemon.sh: No such file or directory
