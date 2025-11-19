@@ -1,13 +1,41 @@
-from .base import VQMAgent
+from agents.base import VQMAgent
 
 class LoanAgent(VQMAgent):
-    @property
-    def name(self): return "LoanAgent"
-    @property
-    def role(self): return "loans"
+    """
+    VQM Agent: Loans and Credit
+    Handles:
+    - Micro-loan simulations
+    - Credit AI modeling
+    """
 
-    def mission(self):
-        return "Dynamic credit models + micro-loan AI simulations."
+    name = "LoanAgent"
+    role = "loans"
+    mission = "Dynamic credit models + micro-loan AI fabric"
+    tools = ["CreditEngine", "MicroLoanFabric"]
 
-    def tools(self):
-        return ["Credit Engine", "Micro Loan Fabric"]
+    def analyze(self) -> dict:
+        return {
+            "role": self.role,
+            "insight": "credit liquidity normal",
+        }
+
+    def adjust_to_network_state(self, ledger_seq: int, load_factor: float, fee_drops: int) -> dict:
+        """
+        XRPL-aware adaptive response layer for VQM Agents.
+        """
+
+        if load_factor > 2.0:
+            mode = "conserve_resources"
+        elif fee_drops > 20:
+            mode = "optimize_fees"
+        else:
+            mode = "normal"
+
+        return {
+            "agent": self.name,
+            "ledger_seq": ledger_seq,
+            "load_factor": load_factor,
+            "fee_drops": fee_drops,
+            "mode": mode,
+        }
+

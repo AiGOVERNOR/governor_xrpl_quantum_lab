@@ -1,13 +1,42 @@
-from .base import VQMAgent
+from agents.base import VQMAgent
 
 class MortgageAgent(VQMAgent):
-    @property
-    def name(self): return "MortgageAgent"
-    @property
-    def role(self): return "mortgage"
+    """
+    VQM Agent: Mortgage Systems
+    Handles:
+    - Tokenized property models
+    - Mortgage passports
+    - XRPL-secured loan structures
+    """
 
-    def mission(self):
-        return "Mortgage passports + tokenized property concepts."
+    name = "MortgageAgent"
+    role = "mortgage"
+    mission = "Tokenized property + mortgage passports"
+    tools = ["MortgagePassport", "PropertyTokenizer"]
 
-    def tools(self):
-        return ["Mortgage Passport", "Property Tokenizer"]
+    def analyze(self) -> dict:
+        return {
+            "role": self.role,
+            "insight": "property indexes stable",
+        }
+
+    def adjust_to_network_state(self, ledger_seq: int, load_factor: float, fee_drops: int) -> dict:
+        """
+        XRPL-aware adaptive response layer for VQM Agents.
+        """
+
+        if load_factor > 2.0:
+            mode = "conserve_resources"
+        elif fee_drops > 20:
+            mode = "optimize_fees"
+        else:
+            mode = "normal"
+
+        return {
+            "agent": self.name,
+            "ledger_seq": ledger_seq,
+            "load_factor": load_factor,
+            "fee_drops": fee_drops,
+            "mode": mode,
+        }
+

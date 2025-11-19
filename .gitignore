@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Termux artifacts
+termux.properties
+*.log
+
+# OS junk
+.DS_Store
+Thumbs.db
