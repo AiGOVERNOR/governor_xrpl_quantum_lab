@@ -1,63 +1,133 @@
-from fastapi import FastAPI
+"""
+VQM Mainnet Brain – HTTP API (v1)
 
-from ecosystem.pipeline_v5 import run_vqm_cycle_v5
+This FastAPI app exposes a read-only interface to the VQM ecosystem:
+
+- /health           : basic health check
+- /v1/state         : full pipeline snapshot (single cycle)
+- /v1/guardian      : guardian / policy block
+- /v1/tools         : tools registry
+- /v1/fee-horizon   : fee horizon struct (if present)
+- /v1/scheduler     : scheduler advice (if present)
+
+Everything here is:
+- Read-only
+- Non-custodial
+- No trading, no tx submission, no signing
+"""
+
+from typing import Any, Dict, Optional
+
+from fastapi import FastAPI, HTTPException
+
+# Prefer the advanced pipeline_v4, but fall back to the base orchestrator.
+try:  # pragma: no cover - dynamic wiring
+    from ecosystem.pipeline_v4 import run_vqm_cycle_v4 as run_vqm_cycle
+    PIPELINE_VERSION = "v4"
+except Exception:  # pragma: no cover
+    from ecosystem.orchestrator import run_vqm_cycle  # type: ignore
+    PIPELINE_VERSION = "base"
 
 app = FastAPI(
-    title="VQM XRPL Guardian API",
-    version="5.1.0",
+    title="Governor VQM API",
+    version="1.0.0",
     description=(
-        "Read-only VQM XRPL intelligence API. "
-        "No trading, no transaction submission."
+        "Read-only XRPL VQM brain. Streams network-aware policy, guardian output, "
+        "fee bands, and scheduler advice. No signing, no trading."
     ),
 )
 
 
-@app.get("/")
-def root() -> dict:
+def _safe_cycle() -> Dict[str, Any]:
+    """
+    Run one VQM pipeline cycle and validate the basic shape.
+    """
+    try:
+        state = run_vqm_cycle()
+    except Exception as exc:  # pragma: no cover - runtime failure
+        raise HTTPException(status_code=500, detail=f"VQM pipeline error: {exc!r}")
+
+    if not isinstance(state, dict):
+        raise HTTPException(
+            status_code=500,
+            detail="VQM pipeline returned non-dict state.",
+        )
+    return state
+
+
+@app.get("/health")
+def health() -> Dict[str, Any]:
+    """
+    Simple liveness + pipeline wiring check.
+    """
+    try:
+        state = run_vqm_cycle()
+        network_state = state.get("network_state", {})
+    except Exception:
+        network_state = {}
+
     return {
-        "service": "vqm_xrpl_guardian",
-        "version": "5.1.0",
-        "read_only": True,
-        "trading_enabled": False,
+        "status": "ok",
+        "pipeline": PIPELINE_VERSION,
+        "has_network_state": bool(network_state),
     }
 
 
-@app.get("/vqm/state")
-def vqm_state() -> dict:
+@app.get("/v1/state")
+def get_state() -> Dict[str, Any]:
     """
-    Full pipeline_v5 state. This is what the SDK's HTTP
-    mode expects to consume.
+    Full VQM state. This is the core API call.
     """
-    return run_vqm_cycle_v5()
+    return _safe_cycle()
 
 
-@app.get("/vqm/network")
-def vqm_network() -> dict:
+@app.get("/v1/guardian")
+def get_guardian() -> Dict[str, Any]:
     """
-    XRPL network snapshot only.
+    Guardian block: policy, forge, mesh, llm.
     """
-    state = run_vqm_cycle_v5()
-    return state.get("network_state", {})
+    state = _safe_cycle()
+    guardian = state.get("guardian")
+    if guardian is None:
+        raise HTTPException(status_code=404, detail="guardian block not present in state")
+    return guardian
 
 
-@app.get("/vqm/guardian")
-def vqm_guardian() -> dict:
+@app.get("/v1/tools")
+def get_tools() -> Dict[str, Any]:
     """
-    Guardian decision + safety info only.
+    Tools registry: list of tools with scores and metadata.
     """
-    state = run_vqm_cycle_v5()
-    return state.get("guardian", {})
+    state = _safe_cycle()
+    tools = state.get("tools")
+    if tools is None:
+        raise HTTPException(status_code=404, detail="tools not present in state")
+    return {"tools": tools}
 
 
-@app.get("/vqm/safety")
-def vqm_safety() -> dict:
+@app.get("/v1/fee-horizon")
+def get_fee_horizon() -> Dict[str, Any]:
     """
-    Compact safety view: network + safety + hard guarantees.
+    Optional: fee horizon / trends block if the pipeline exposes it.
+
+    Returns 404 if the upstream has no 'fee_horizon' key.
     """
-    state = run_vqm_cycle_v5()
-    guardian = state.get("guardian", {})
-    return {
-        "network_state": state.get("network_state", {}),
-        "safety": guardian.get("safety"),
-        "hard_guarantees": guardian.get("hard_guarantees"),
-    }
+    state = _safe_cycle()
+    horizon = state.get("fee_horizon")
+    if horizon is None:
+        raise HTTPException(status_code=404, detail="fee_horizon not present in state")
+    return horizon
+
+
+@app.get("/v1/scheduler")
+def get_scheduler() -> Dict[str, Any]:
+    """
+    Optional: scheduler advice block.
+
+    Returns 404 if missing.
+    """
+    state = _safe_cycle()
+    sched = state.get("scheduler")
+    if sched is None:
+        raise HTTPException(status_code=404, detail="scheduler not present in state")
+    return sched

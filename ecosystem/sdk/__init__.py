@@ -1,10 +1,15 @@
 """
-VQM Integrators SDK
+AIVQM Integrators SDK Layer
 
-Thin, read-only client for interacting with the VQM XRPL
-Guardian / Pipeline either locally (in-process) or via HTTP.
+Thin, read-only client for talking to a running VQM API node.
+
+Usage:
+
+    from ecosystem.sdk import VQMClient
+
+    client = VQMClient()  # default: http://127.0.0.1:8000
+    state = client.get_full_state()
+    print(state["network_state"])
 """
 
-from .client import VQMClient, VQMState  # noqa: F401
-
-__all__ = ["VQMClient", "VQMState"]
+from .client import VQMClient, VQMClientError  # noqa: F401
