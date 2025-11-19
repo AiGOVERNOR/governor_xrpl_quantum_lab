@@ -20,3 +20,7 @@
  create mode 100644 nohup.out
 [main d5bcbdb] Auto VQM commit — Ledger 100305675
  1 file changed, 20 insertions(+)
+fatal: could not read Password for 'https://cat%20%3E%20vqm_daemon.sh%20%3C%3C%20%27EOF%27@github.com': No such device or address
+fatal: could not read Password for 'https://pkill%20-f%20autopush.py@github.com': No such device or address
+error: waitpid for git-remote-https failed: No child processes
+error: waitpid for git-remote-https failed: No child processes
