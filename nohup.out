@@ -90,3 +90,18 @@ nothing to commit, working tree clean
 Everything up-to-date
 To github.com:AiGOVERNOR/governor_xrpl_quantum_lab.git
    a0819b7..4cc7449  main -> main
+On branch main
+Your branch is up to date with 'origin/main'.
+
+nothing to commit, working tree clean
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   nohup.out
+
+no changes added to commit (use "git add" and/or "git commit -a")
+Everything up-to-date
+Everything up-to-date
