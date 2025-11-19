@@ -1,65 +1,148 @@
 """
-VQM Pipeline v4 / v5 / v6 wrapper.
+VQM Pipeline v4 – Level 12–30 Super-Brain
 
-Builds on the existing orchestrator.run_vqm_cycle() and layers:
+This module wraps the base VQM orchestrator with:
 
-- Level 4: Predictive Fee Horizon
-- Level 5: Adaptive Scheduler
-- Level 6: Mesh Intent Router
+- Memory Engine (L12–L15): persists network snapshots on disk
+- Predictive Engine (L16–L20): computes fee horizon + trends
+- Council Engine (L21–L30): multi-agent governance, scheduler, mesh intent
 
-No signing, no trading. This is a pure planning & guidance layer.
+All behavior is strictly read-only and advisory: no trading, no signing,
+no on-ledger side effects.
 """
 
-from copy import deepcopy
-from typing import Any, Dict
+from __future__ import annotations
 
-from ecosystem.predictive import FeeHorizonModel
-from ecosystem.scheduler import AdaptiveScheduler
-from ecosystem.mesh_intents import MeshIntentRouter
+from datetime import datetime, timezone
+from typing import Any, Dict, List
+
 from ecosystem.orchestrator import run_vqm_cycle as base_run_vqm_cycle
+from ecosystem.memory import append_state, load_recent_states
+from ecosystem.predictive import build_fee_horizon
+from ecosystem.council import build_council_decision
 
-# Single in-process instances so they can keep light history.
-_fee_horizon_model = FeeHorizonModel()
-_scheduler = AdaptiveScheduler()
-_mesh_router = MeshIntentRouter()
+PIPELINE_VERSION = "2.0.0"
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _extract_network_state(base: Dict[str, Any]) -> Dict[str, Any]:
+    ns = base.get("network_state")
+    if isinstance(ns, dict):
+        return ns
+    return {}
+
+
+def _build_tools_listing(existing_tools: List[Dict[str, Any]] | None) -> List[Dict[str, Any]]:
+    tools = list(existing_tools or [])
+
+    # Ensure base tools are present only once (idempotent).
+    def _ensure(name: str, category: str, description: str, version: str = "0.1.0") -> None:
+        for t in tools:
+            if t.get("name") == name:
+                return
+        tools.append(
+            {
+                "name": name,
+                "category": category,
+                "metadata": {"description": description},
+                "score": 0.999,
+                "version": version,
+            }
+        )
+
+    _ensure(
+        name="fee_vqm_tool",
+        category="fee",
+        description="Dynamic XRPL fee band advisor.",
+    )
+    _ensure(
+        name="stream_pay_tool",
+        category="payment_protocol",
+        description="XRPL StreamPay (salary/stream) protocol logic.",
+    )
+    _ensure(
+        name="escrow_milestone_tool",
+        category="escrow",
+        description="Milestone escrow protocol planner.",
+    )
+    _ensure(
+        name="fee_pressure_reducer",
+        category="network_policy",
+        description="AI-guided fee pressure reduction advisor.",
+    )
+    _ensure(
+        name="memory_engine",
+        category="infra",
+        description="Persistent memory for XRPL network_state snapshots.",
+        version="0.2.0",
+    )
+    _ensure(
+        name="predictive_engine",
+        category="analytics",
+        description="Trend + horizon modeling for XRPL fee conditions.",
+        version="0.2.0",
+    )
+    _ensure(
+        name="council_engine",
+        category="governance",
+        description="Multi-agent council for mesh intent + scheduler.",
+        version="0.2.0",
+    )
+
+    return tools
 
 
 def run_vqm_cycle_v4() -> Dict[str, Any]:
     """
-    Extended cycle:
+    High-level orchestration entry point.
 
-    1. Call the existing orchestrator (Level 1–3).
-    2. Feed network_state into Level 4 model.
-    3. Build Level 5 adaptive schedule.
-    4. Build Level 6 mesh intent.
-
-    Returns a dict superset of the original orchestrator output.
+    1. Runs base VQM orchestrator (Guardian + RPC + Mesh).
+    2. Appends network_state into disk-backed memory.
+    3. Builds fee_horizon using recent history.
+    4. Builds council decision: mesh_intent + scheduler + council record.
+    5. Returns a rich, fully-composed state object.
     """
-    base_state = base_run_vqm_cycle()
-    # Copy to avoid mutating the original state in unexpected places.
-    state: Dict[str, Any] = deepcopy(base_state)
+    base_state: Dict[str, Any] = base_run_vqm_cycle()
+    network_state = _extract_network_state(base_state)
 
-    network_state = state.get("network_state", {}) or {}
+    # 1) Persist to memory (Level 12–15)
+    memory_record = {
+        "timestamp": _now_iso(),
+        "network_state": network_state,
+    }
+    append_state(memory_record)
 
-    # Level 4: predictive horizon
-    fee_horizon = _fee_horizon_model.update_and_forecast(network_state)
+    # 2) Load history and build fee horizon (Level 16–20)
+    history = load_recent_states(limit=200)
+    fee_horizon = build_fee_horizon(history, current_network_state=network_state)
 
-    # Level 5: scheduler
-    schedule = _scheduler.plan(fee_horizon=fee_horizon, network_state=network_state)
-
-    # Level 6: mesh intent
-    mesh_intent = _mesh_router.route(
+    # 3) Council / Super-brain (Level 21–30)
+    council_bundle = build_council_decision(
         network_state=network_state,
         fee_horizon=fee_horizon,
-        schedule=schedule,
     )
 
-    # Attach to state
-    state["fee_horizon"] = fee_horizon
-    state["scheduler"] = schedule
-    state["mesh_intent"] = mesh_intent
+    # 4) Compose tool listing
+    existing_tools = base_state.get("tools")
+    tools = _build_tools_listing(existing_tools if isinstance(existing_tools, list) else None)
 
-    # Bump pipeline version
-    state["pipeline_version"] = "1.6.0"
+    # 5) Assemble final V4 state
+    out: Dict[str, Any] = {}
+    out.update(base_state)
 
-    return state
+    out["pipeline_version"] = PIPELINE_VERSION
+    out["timestamp"] = _now_iso()
+    out["fee_horizon"] = fee_horizon
+    out["mesh_intent"] = council_bundle["mesh_intent"]
+    out["scheduler"] = council_bundle["scheduler"]
+    out["council"] = council_bundle["council"]
+    out["memory"] = {
+        "store": "file:data/vqm_memory.jsonl",
+        "history_len": len(history),
+    }
+    out["tools"] = tools
+
+    return out
