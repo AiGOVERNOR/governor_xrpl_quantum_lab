@@ -227,7 +227,6 @@ Multi-node, websocket-aware, fee-smart, telemetry-rich RPC adapter
 for the VQM ecosystem. Safe, read-only, and mainnet-friendly.
 """
 
-from __future__ import annotations
 
 import json
 import time
