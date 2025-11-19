@@ -1,58 +1,23 @@
-import os
-import time
+# autopush.py
 import subprocess
-from datetime import datetime
-
-REPO_PATH = os.path.dirname(os.path.abspath(__file__))
-POLL_INTERVAL = 10  # seconds
+import time
+from ecosystem.orchestrator import run_vqm_cycle
 
 
-def run(cmd):
-    """Run a shell command and capture output/errors."""
-    try:
-        result = subprocess.run(
-            cmd, shell=True, cwd=REPO_PATH,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        return result.stdout.strip(), result.stderr.strip()
-    except Exception as e:
-        return "", str(e)
-
-
-def git_changed():
-    """Check if there are uncommitted changes."""
-    out, _ = run("git status --porcelain")
-    return len(out.strip()) > 0
-
-
-def git_autopush():
-    """Stage, commit, push to origin/main."""
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-
-    print(f"[ AUTO-PUSH ] Detected changes → committing @ {timestamp}")
-
-    run("git add -A")
-    run(f'git commit -m "MeshPulse @ {timestamp}"')
-
-    out, err = run("git push origin main")
-
-    if err:
-        print("[ ERROR pushing ]", err)
-    else:
-        print("[ PUSHED ]", out)
-
-
-def main():
-    print("=== Governor XRPL VQM AutoPush Engine Online ===")
-    print(f"Monitoring: {REPO_PATH}")
-
+def autopush_vqm(interval_minutes: int = 15):
+    """
+    Governor's autonomous VQM autopush engine.
+    Runs a full VQM cycle, commits the state, and pushes it to GitHub.
+    """
     while True:
-        if git_changed():
-            git_autopush()
-        time.sleep(POLL_INTERVAL)
+        state = run_vqm_cycle()
 
+        ledg = state["network_state"]["ledger_seq"]
+        msg = f"Auto VQM commit — Ledger {ledg}"
 
-if __name__ == "__main__":
-    main()
+        subprocess.run(["git", "add", "-A"])
+        subprocess.run(["git", "commit", "-m", msg])
+        subprocess.run(["git", "push", "origin", "main"])
+
+        print(f"[Autopush] {msg}")
+        time.sleep(interval_minutes * 60)
