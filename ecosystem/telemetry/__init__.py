@@ -18,15 +18,83 @@ from typing import Any, Dict, Optional
 
 def _normalize_ledger_args(*args, **kwargs) -> Dict[str, float]:
     """
-    Accepts a variety of call styles for compute_ledger_rate and normalizes
-    them into:
-        {
-            "prev_ledger": int | None,
-            "prev_ts": float | None,
-            "curr_ledger": int,
-            "curr_ts": float,
-        }
+    Accept diverse call styles:
+
+      1) compute_ledger_rate(prev_ledger, prev_ts, curr_ledger, curr_ts)
+      2) compute_ledger_rate(prev_dict, curr_dict)
+      3) compute_ledger_rate(history_list)  <-- NEW, fixes your crash
+      4) compute_ledger_rate(kwargs)
     """
+
+    # ------------------------------------------------------------------
+    # NEW: history list mode, e.g. compute_ledger_rate(self._ledger_history)
+    # ------------------------------------------------------------------
+    if len(args) == 1 and isinstance(args[0], list):
+        hist = args[0]
+
+        # Not enough data → return "neutral" values
+        if len(hist) < 2:
+            return {
+                "prev_ledger": None,
+                "prev_ts": None,
+                "curr_ledger": None,
+                "curr_ts": None,
+            }
+
+        prev = hist[-2]
+        curr = hist[-1]
+
+        return {
+            "prev_ledger": int(prev.get("ledger_seq")),
+            "prev_ts": float(prev.get("timestamp")),
+            "curr_ledger": int(curr.get("ledger_seq")),
+            "curr_ts": float(curr.get("timestamp", time.time())),
+        }
+
+    # ------------------------------------------------------------------
+    # Style 1: 4 positional args
+    # ------------------------------------------------------------------
+    if len(args) == 4:
+        prev_ledger, prev_ts, curr_ledger, curr_ts = args
+        return {
+            "prev_ledger": int(prev_ledger),
+            "prev_ts": float(prev_ts),
+            "curr_ledger": int(curr_ledger),
+            "curr_ts": float(curr_ts),
+        }
+
+    # ------------------------------------------------------------------
+    # Style 2: prev, curr dicts or objects
+    # ------------------------------------------------------------------
+    if len(args) == 2:
+        prev, curr = args
+
+        def extract(obj, field):
+            if obj is None:
+                return None
+            if isinstance(obj, dict):
+                return obj.get(field)
+            return getattr(obj, field, None)
+
+        return {
+            "prev_ledger": extract(prev, "ledger_seq"),
+            "prev_ts": extract(prev, "timestamp"),
+            "curr_ledger": extract(curr, "ledger_seq"),
+            "curr_ts": extract(curr, "timestamp") or time.time(),
+        }
+
+    # ------------------------------------------------------------------
+    # Style 3: kwargs
+    # ------------------------------------------------------------------
+    curr_ledger = kwargs.get("curr_ledger")
+    curr_ts = kwargs.get("curr_ts", time.time())
+
+    return {
+        "prev_ledger": kwargs.get("prev_ledger"),
+        "prev_ts": kwargs.get("prev_ts"),
+        "curr_ledger": curr_ledger,
+        "curr_ts": curr_ts,
+    }
 
     # Style 1: compute_ledger_rate(prev_ledger, prev_ts, curr_ledger, curr_ts)
     if len(args) == 4 and all(not isinstance(a, dict) for a in args):
