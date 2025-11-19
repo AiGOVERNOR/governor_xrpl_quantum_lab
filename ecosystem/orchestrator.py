@@ -1,49 +1,60 @@
-"""
-VQM Orchestrator — Core controller for:
-A: XRPL Telemetry Intake
-C: VQM Multi-Agent Mesh Engine
-D: Governance & Policy Engine
-F: LLM Assistance Integration
-G: Self-Evolving Code Engine ("The Forge")
-"""
+from __future__ import annotations
 
-import datetime
-import json
-from uuid import uuid4
+from dataclasses import dataclass, asdict
+from datetime import datetime, timezone
+from typing import Any, Dict
 
 from xrpl_rpc import XRPL_RPC
-from ecosystem.guardian import VQMGuardian
-
-PIPELINE_VERSION = "1.0.0"
+from ecosystem.guardian import XRPLGuardian
 
 
-def run_vqm_cycle():
+@dataclass
+class NetworkState:
+    ledger_seq: int
+    txn_base_fee: int
+    txn_median_fee: int
+    recommended_fee_drops: int
+    load_factor: float
+
+
+def _read_network_state(rpc: XRPL_RPC) -> NetworkState:
     """
-    Executes one VQM Intelligence Cycle:
-      1. Pulls live XRPL telemetry
-      2. Passes to VQM Guardian
-      3. Emits proposals, upgrades, and AI analysis
+    Thin adapter from XRPL_RPC.get_fee_snapshot() into a structured dataclass.
+    We assume XRPL_RPC is read-only and never holds secrets.
+    """
+
+    snap: Dict[str, Any] = rpc.get_fee_snapshot()
+
+    return NetworkState(
+        ledger_seq=int(snap.get("ledger_seq", 0)),
+        txn_base_fee=int(snap.get("txn_base_fee", 10)),
+        txn_median_fee=int(snap.get("txn_median_fee", 10)),
+        recommended_fee_drops=int(snap.get("recommended_fee_drops", 10)),
+        load_factor=float(snap.get("load_factor", 1.0)),
+    )
+
+
+def run_vqm_cycle() -> Dict[str, Any]:
+    """
+    One full VQM cycle:
+
+      1. Read live XRPL fee / load snapshot (read-only)
+      2. Classify network mode via XRPLGuardian
+      3. Produce guardian view + network_state + metadata
+
+    This function is safe to call in cron, uvicorn endpoints,
+    or your autopush loop. It does NOT submit any transactions.
     """
 
     rpc = XRPL_RPC()
-    guardian = VQMGuardian()
+    net_state = _read_network_state(rpc)
 
-    # --- A: Live Network Telemetry ---
-    telemetry = rpc.get_fee_summary()
-    now = datetime.datetime.utcnow().isoformat()
+    guardian = XRPLGuardian()
+    guardian_view = guardian.guard(asdict(net_state))
 
-    # --- C/D/F/G: Guardian Multi-Pipeline brain ---
-    guardian_output = guardian.process(telemetry)
-
-    output = {
-        "timestamp": now,
-        "pipeline_version": PIPELINE_VERSION,
-        "network_state": telemetry,
-        "guardian": guardian_output,
+    return {
+        "pipeline_version": "1.1.0",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "network_state": asdict(net_state),
+        "guardian": guardian_view,
     }
-
-    # Write telemetry log
-    with open("data/xrpl_vqm_telemetry.log", "a") as f:
-        f.write(json.dumps(output) + "\n")
-
-    return output
