@@ -1,0 +1,23 @@
+{
+  "kind": "automated_profit_agent",
+  "trigger": {
+    "median_fee_max": 50,
+    "max_load_factor": 1.2,
+    "min_spread_percent": 0.3
+  },
+  "constraints": {
+    "max_risk_level": 2,
+    "balance_fraction": 0.20
+  },
+  "action": {
+    "mode": "best_available",
+    "protocols": ["simple_payment_v2", "multileg_v2"],
+    "execute_only_if_profitable": true,
+    "log_path": "governor_xrpl_quantum_lab/logs/profit_agent/"
+  },
+  "metadata": {
+    "creator": "Governor",
+    "version": "1.0.0",
+    "note": "Autonomous, constrained profit execution agent"
+  }
+}

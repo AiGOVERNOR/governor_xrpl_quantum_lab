@@ -1,15 +1,19 @@
 """
-AIVQM Integrators SDK Layer
+ecosystem.sdk
+-------------
+Integrator-friendly SDK for the Governor VQM stack.
 
-Thin, read-only client for talking to a running VQM API node.
+This module exposes a high-level client that wraps:
 
-Usage:
+  - Quantum Flow Engine v2
+  - Transaction intents
 
-    from ecosystem.sdk import VQMClient
+It is:
 
-    client = VQMClient()  # default: http://127.0.0.1:8000
-    state = client.get_full_state()
-    print(state["network_state"])
+  - READ-ONLY (no signing, no submission)
+  - MAINNET-SAFE (RPC reads only)
 """
 
-from .client import VQMClient, VQMClientError  # noqa: F401
+from .client import VQMSDKClient
+
+__all__ = ["VQMSDKClient"]

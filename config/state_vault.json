@@ -1,0 +1,26 @@
+[
+  {
+    "timestamp": "2025-11-23T04:21:46.254130",
+    "governor_balance": 23.683312,
+    "fee_info": {
+      "median_fee": 5000,
+      "safe_fee": 10,
+      "band": "normal",
+      "risk_factor": 0.05
+    },
+    "entropy": 0.85,
+    "action": "AUTH_FIRE"
+  },
+  {
+    "timestamp": "2025-11-23T04:26:16.348363",
+    "governor_balance": 23.683312,
+    "fee_info": {
+      "median_fee": 5000,
+      "safe_fee": 10,
+      "band": "normal",
+      "risk_factor": 0.05
+    },
+    "entropy": 0.85,
+    "action": "AUTH_FIRE"
+  }
+]

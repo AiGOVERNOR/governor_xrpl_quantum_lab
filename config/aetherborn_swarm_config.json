@@ -1,0 +1,8 @@
+{
+  "mode": "LIVE",
+  "risk_mode": "B",
+  "min_balance_xrp": "10",
+  "max_trade_pct": "0.05",
+  "max_trade_xrp": "1.0",
+  "rpc_url": "https://s1.ripple.com:51234/"
+}

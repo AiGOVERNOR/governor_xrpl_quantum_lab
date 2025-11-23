@@ -1,156 +1,104 @@
 """
-Telemetry utilities for the VQM Ecosystem.
-
-This module is intentionally lightweight and defensive:
-- No network I/O.
-- No hard dependencies on XRPL internals.
-- All helpers accept plain dicts/lists and return plain dicts.
+ecosystem.telemetry
+-------------------
+Quantum telemetry tools for VQM.
+All functions are SAFE, read-only, mainnet-compatible.
 """
 
-from __future__ import annotations
-
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
-# ---------------------
-# Fee band classification
-# ---------------------
-
-
-@dataclass
-class FeeBand:
-    band: str
-    comment: str
-
-
-def classify_fee_band(median_fee_drops: int, load_factor: float) -> Dict[str, Any]:
-    """
-    Classify median fee + load_factor into human-readable fee bands.
-
-    This is intentionally simple and conservative. You can tune thresholds later.
-
-    Returns:
-        {
-          "band": "low" | "normal" | "elevated" | "extreme",
-          "comment": str
-        }
-    """
-    if median_fee_drops <= 15 and load_factor <= 1.5:
-        band = "low"
-        comment = "Plenty of capacity. Fees are very low."
-    elif median_fee_drops <= 50 and load_factor <= 2.0:
-        band = "normal"
-        comment = "Network healthy. Standard fees."
-    elif median_fee_drops <= 2000 or load_factor <= 4.0:
-        band = "elevated"
-        comment = "Fee pressure rising; consider prioritizing essential flows."
-    else:
-        band = "extreme"
-        comment = "Severe congestion / fee pressure. Only essential flows should be active."
-
-    return {
-        "band": band,
-        "comment": comment,
-    }
-
-
-# ---------------------
-# Ledger rate estimation
-# ---------------------
-
-
-def compute_ledger_rate(history: Optional[List[Dict[str, Any]]] = None) -> Dict[str, float]:
-    """
-    Compute a rough ledger close rate from an optional history buffer.
-
-    For now, this is intentionally forgiving:
-    - If history is missing/short/bad → fall back to XRPL's expected 3-5s per ledger.
-    - No exceptions, no hard failures.
-
-    Returns:
-        {
-          "ledgers_per_second": float,
-          "seconds_per_ledger": float,
-        }
-    """
-    # Conservative default for safety.
-    DEFAULT_SECONDS_PER_LEDGER = 4.0
-
+def compute_ledger_rate(history: List[int]) -> Dict[str, float]:
     if not history or len(history) < 2:
-        return {
-            "ledgers_per_second": 1.0 / DEFAULT_SECONDS_PER_LEDGER,
-            "seconds_per_ledger": DEFAULT_SECONDS_PER_LEDGER,
-        }
+        return {"ledgers_per_second": 0.0, "seconds_per_ledger": 0.0}
 
-    # Best-effort: try to compute from first/last timestamps if present.
-    try:
-        # Expect something like:
-        # [{"ledger_seq": 100, "timestamp": 1731990000.0}, ...]
-        first = history[0]
-        last = history[-1]
+    deltas = [history[i] - history[i - 1] for i in range(1, len(history))]
+    avg = sum(deltas) / len(deltas) if deltas else 0.0
 
-        l0 = int(first.get("ledger_seq") or first.get("ledger_index"))
-        l1 = int(last.get("ledger_seq") or last.get("ledger_index"))
+    if avg <= 0:
+        return {"ledgers_per_second": 0.0, "seconds_per_ledger": 0.0}
 
-        t0 = float(first.get("timestamp") or first.get("ts"))
-        t1 = float(last.get("timestamp") or last.get("ts"))
-
-        if t1 <= t0 or l1 <= l0:
-            raise ValueError("non-increasing ledger/time")
-
-        delta_ledgers = float(l1 - l0)
-        delta_time = float(t1 - t0)
-
-        lps = delta_ledgers / delta_time
-        spl = delta_time / delta_ledgers
-
-        return {
-            "ledgers_per_second": lps,
-            "seconds_per_ledger": spl,
-        }
-    except Exception:
-        # Never let telemetry math break the pipeline.
-        return {
-            "ledgers_per_second": 1.0 / DEFAULT_SECONDS_PER_LEDGER,
-            "seconds_per_ledger": DEFAULT_SECONDS_PER_LEDGER,
-        }
+    lps = 1.0 / avg
+    return {"ledgers_per_second": lps, "seconds_per_ledger": avg}
 
 
-# ---------------------
-# Guardian Attestation
-# ---------------------
-
-
-def make_guardian_attestation(
-    network_state: Dict[str, Any],
-    mode: str,
-    recommended_fee: int,
-    extra: Optional[Dict[str, Any]] = None,
+def classify_fee_band(
+    median_fee: int = None,
+    median_fee_drops: int = None,
+    load_factor: float = 1.0
 ) -> Dict[str, Any]:
     """
-    Build a compact attestation record for Guardian / audit logs.
-
-    Args:
-        network_state: dict with fields like ledger_seq, txn_median_fee, load_factor, etc.
-        mode: current operating mode ("normal", "fee_pressure", etc.).
-        recommended_fee: the fee (drops) that policies are converging on.
-        extra: optional dict of additional context.
-
-    Returns:
-        dict suitable for logging / JSON export.
+    Backwards + forwards compatible fee band classifier.
+    Accepts:
+      - classify_fee_band(median_fee=...)
+      - classify_fee_band(median_fee_drops=...)
     """
-    base = {
-        "mode": mode,
-        "recommended_fee": recommended_fee,
-        "network_state": {
-            "ledger_seq": network_state.get("ledger_seq"),
-            "txn_median_fee": network_state.get("txn_median_fee"),
-            "txn_base_fee": network_state.get("txn_base_fee"),
-            "recommended_fee_drops": network_state.get("recommended_fee_drops"),
-            "load_factor": network_state.get("load_factor"),
-        },
+    # Normalize input
+    fee = median_fee_drops if median_fee_drops is not None else median_fee
+    if fee is None:
+        return {"band": "unknown", "comment": "No fee provided"}
+
+    # Fee band logic
+    if fee <= 20:
+        return {"band": "low", "comment": "Network inexpensive"}
+    elif fee <= 200:
+        return {"band": "normal", "comment": "Healthy fee level"}
+    elif fee <= 2000:
+        return {"band": "elevated", "comment": "Busy period"}
+    else:
+        return {"band": "extreme", "comment": "High congestion"}
+
+
+
+def make_guardian_attestation(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "version": "1.0.0",
+        "ledger": snapshot.get("ledger_seq"),
+        "median_fee": snapshot.get("txn_median_fee"),
+        "load_factor": snapshot.get("load_factor"),
     }
-    if extra:
-        base["extra"] = extra
-    return base
+
+
+# ----------------------------
+# NEW QUANTUM TELEMETRY TOOLS
+# ----------------------------
+
+def anomaly_detect(history: List[int]) -> Dict[str, Any]:
+    """
+    Detect anomalies in median_fee or ledger rate.
+    Purely analytical — NEVER interacts with the network.
+    """
+    if len(history) < 3:
+        return {"anomaly": False, "reason": "insufficient data"}
+
+    diffs = [abs(history[i] - history[i - 1]) for i in range(1, len(history))]
+    avg = sum(diffs) / len(diffs)
+
+    # simple spike model
+    spike = diffs[-1] > (avg * 3)
+
+    return {
+        "anomaly": spike,
+        "reason": "fee spike detected" if spike else "normal variance",
+    }
+
+
+def predict_fee_trend(history: List[int]) -> Dict[str, str]:
+    """
+    Basic trend predictor:
+      - rising, falling, or flat
+    """
+    if len(history) < 3:
+        return {"trend": "flat"}
+
+    if not isinstance(history, list):
+        return {"trend": "flat", "reason": "non-list input"}
+    
+    prev = history[-2]
+    pre_prev = history[-3]
+
+    if last > prev > pre_prev:
+        return {"trend": "rising"}
+    if last < prev < pre_prev:
+        return {"trend": "falling"}
+    return {"trend": "flat"}

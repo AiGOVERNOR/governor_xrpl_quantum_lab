@@ -1,9 +1,14 @@
 """
 ecosystem/sdk/client.py
 
-Unified VQM SDK Client with backward compatibility:
-    - Accepts memo="..." OR metadata={"memo": "..."}
-    - Provides VQMClient and VQMSDKClient
+Unified VQM SDK Client
+----------------------
+This module provides:
+    - VQMClient           (primary modern client)
+    - VQMSDKClient        (legacy alias for compatibility)
+
+It resolves the doctor CLI error:
+    ImportError: cannot import name 'VQMSDKClient'
 """
 
 from __future__ import annotations
@@ -16,14 +21,19 @@ from typing import Any, Dict, Optional
 
 class _BaseVQMClient:
     """
-    Offline XRPL constructor.
-    Supports legacy memo=... calls and modern metadata=...
+    Base client class providing XRPL offline transaction constructors.
+    All VQM clients inherit from this base.
+
+    Completely offline:
+        - no signing
+        - no broadcast
+        - no secrets
     """
 
     version = "2.0.0"
 
     # --------------------------------------------------------
-    # Simple Payment (modern + legacy compatibility)
+    # Simple Payment (modern interface)
     # --------------------------------------------------------
     def simple_payment(
         self,
@@ -32,21 +42,8 @@ class _BaseVQMClient:
         destination_account: str,
         amount_drops: int,
         fee_drops: Optional[int] = None,
-
-        # NEW: legacy support
-        memo: Optional[str] = None,
-
-        # Modern
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-
-        # --- backward compatibility layer ---
-        # If legacy "memo=" is passed, embed it into metadata
-        if memo:
-            if metadata is None:
-                metadata = {"memo": memo}
-            else:
-                metadata = {**metadata, "memo": memo}
 
         tx = {
             "TransactionType": "Payment",
@@ -59,12 +56,11 @@ class _BaseVQMClient:
         if fee_drops is not None:
             tx["Fee"] = str(fee_drops)
 
-        # Memos (optional)
-        if metadata and "memo" in metadata:
+        if metadata:
             tx["Memos"] = [
                 {
                     "Memo": {
-                        "MemoData": metadata["memo"],
+                        "MemoData": metadata.get("memo", "VQM"),
                         "MemoType": "VQM"
                     }
                 }
@@ -73,7 +69,7 @@ class _BaseVQMClient:
         return tx
 
     # --------------------------------------------------------
-    # Escrow Milestone (future)
+    # Escrow Milestone (future protocol support)
     # --------------------------------------------------------
     def escrow_milestone(
         self,
@@ -83,15 +79,8 @@ class _BaseVQMClient:
         amount_drops: int,
         milestones: int = 3,
         fee_drops: Optional[int] = None,
-        memo: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-
-        if memo:
-            if metadata is None:
-                metadata = {"memo": memo}
-            else:
-                metadata = {**metadata, "memo": memo}
 
         tx = {
             "TransactionType": "EscrowCreate",
@@ -100,17 +89,17 @@ class _BaseVQMClient:
             "Amount": str(amount_drops),
             "CancelAfter": 0,
             "FinishAfter": 0,
-            "VQM_Milestones": milestones,
+            "VQM_Milestones": milestones
         }
 
         if fee_drops is not None:
             tx["Fee"] = str(fee_drops)
 
-        if metadata and "memo" in metadata:
+        if metadata:
             tx["Memos"] = [
                 {
                     "Memo": {
-                        "MemoData": metadata["memo"],
+                        "MemoData": metadata.get("memo", "ESCROW"),
                         "MemoType": "VQM"
                     }
                 }
@@ -130,14 +119,14 @@ class VQMClient(_BaseVQMClient):
 
 class VQMSDKClient(_BaseVQMClient):
     """
-    Legacy alias required by vqm_doctor_cli.
-    Identical behavior to VQMClient.
+    Legacy name required by vqm_doctor_cli and older modules.
+    Internally identical to VQMClient.
     """
     pass
 
 
 # ============================================================
-# FACTORY METHODS
+# FACTORY USED BY OTHER MODULES
 # ============================================================
 
 def build_vqm_client() -> VQMClient:

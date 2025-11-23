@@ -1,0 +1,10 @@
+{
+    "enabled": true,
+    "strategy": "maximize_profit",
+    "auto_heal": true,
+    "auto_upgrade": true,
+    "accounts": {
+        "source_account": "rGovernorSourceXRP",
+        "profit_vault_account": "rGovernorProfitVault"
+    }
+}

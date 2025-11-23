@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "fee_policy": {
+    "bps": 5,
+    "min_drops": 10,
+    "max_bps": 50
+  },
+  "accounts": {
+    "source": "rEXdG3Rh9Ejb3NKXoxb16xge4d3BHskJUP",
+    "vault": "rK7BKKcayjcbwAdYBj1XnAy1hR2zesTqQZ",
+    "fee_pool": "rK7BKKcayjcbwAdYBj1XnAy1hR2zesTqQZ"
+  },
+  "features": {
+    "iso20022_logging": true,
+    "enforce_min_reserve": true
+  }
+}

@@ -1,25 +1,38 @@
 """
-Level 5: Adaptive Scheduler for VQM Ecosystem.
+ecosystem.scheduler
+-------------------
+Simple, deterministic scheduler for VQM pipeline v5.
 
-Takes the projected fee horizon and produces a plan for various
-"job classes" – indexers, analytics, batch settlements, experiments, etc.
+Takes:
+  - fee band
+  - median fee
+  - load factor
 
-This does *not* execute jobs. It only returns a schedule plan.
+Returns:
+  - recommended concurrency levels for internal subsystems.
+
+SAFE. No signing. No network mutation.
 """
 
-from typing import Dict, Any, List
+from __future__ import annotations
+
+from typing import Any, Dict
 
 
-class AdaptiveScheduler:
+class Scheduler:
     """
-    Stateless scheduler: given (fee_horizon, network_state) it returns
-    a recommended schedule plan – how aggressively each job class
-    should run under current and projected conditions.
+    Very small policy scheduler.
+
+    Modes:
+      - low:      cheap network → increase concurrency
+      - normal:   typical load → default values
+      - elevated: busier → reduce heavy jobs
+      - extreme:  high load → only essential jobs
     """
 
     def __init__(self) -> None:
-        # Policy knobs – tweakable without changing behavior shape.
-        self._base_concurrency = {
+        # All defaults
+        self.defaults = {
             "indexer": 4,
             "analytics": 2,
             "batch_settlements": 2,
@@ -27,99 +40,50 @@ class AdaptiveScheduler:
             "archival": 1,
         }
 
-    def _policy_for_band(self, band: str) -> Dict[str, Dict[str, Any]]:
+    def plan(self, band: str, median_fee: int, load_factor: float) -> Dict[str, Any]:
         """
-        Map projected_fee_band -> per-job behavior.
+        Return a stable scheduler block.
         """
-        band = band or "normal"
 
+        # Base concurrency for all jobs
+        cfg = dict(self.defaults)
+
+        # Modify based on fee band
         if band == "low":
-            # Network is cheap & calm: open throttle (a little).
-            return {
-                "indexer": {"mode": "aggressive", "multiplier": 1.5},
-                "analytics": {"mode": "aggressive", "multiplier": 1.5},
-                "batch_settlements": {"mode": "normal", "multiplier": 1.2},
-                "experiments": {"mode": "normal", "multiplier": 1.5},
-                "archival": {"mode": "normal", "multiplier": 1.3},
-            }
-        if band == "normal":
-            return {
-                "indexer": {"mode": "normal", "multiplier": 1.0},
-                "analytics": {"mode": "normal", "multiplier": 1.0},
-                "batch_settlements": {"mode": "normal", "multiplier": 1.0},
-                "experiments": {"mode": "limited", "multiplier": 1.0},
-                "archival": {"mode": "normal", "multiplier": 1.0},
-            }
-        if band == "elevated":
-            return {
-                "indexer": {"mode": "normal", "multiplier": 0.9},
-                "analytics": {"mode": "limited", "multiplier": 0.7},
-                "batch_settlements": {"mode": "prioritized", "multiplier": 1.0},
-                "experiments": {"mode": "paused", "multiplier": 0.0},
-                "archival": {"mode": "limited", "multiplier": 0.5},
-            }
-        if band == "extreme":
-            return {
-                "indexer": {"mode": "essential_only", "multiplier": 0.5},
-                "analytics": {"mode": "paused", "multiplier": 0.0},
-                "batch_settlements": {"mode": "essential_only", "multiplier": 0.8},
-                "experiments": {"mode": "hard_paused", "multiplier": 0.0},
-                "archival": {"mode": "paused", "multiplier": 0.0},
+            cfg["indexer"] = 6
+            cfg["analytics"] = 3
+            cfg["batch_settlements"] = 3
+            cfg["experiments"] = 2
+
+        elif band == "normal":
+            pass  # keep defaults
+
+        elif band == "elevated":
+            cfg["analytics"] = 1
+            cfg["batch_settlements"] = 1
+
+        elif band == "extreme":
+            # Minimal survival mode
+            cfg = {
+                "indexer": 1,
+                "analytics": 0,
+                "batch_settlements": 0,
+                "experiments": 0,
+                "archival": 0,
             }
 
-        # Safe fallback
-        return {
-            "indexer": {"mode": "normal", "multiplier": 1.0},
-            "analytics": {"mode": "normal", "multiplier": 1.0},
-            "batch_settlements": {"mode": "normal", "multiplier": 1.0},
-            "experiments": {"mode": "limited", "multiplier": 0.5},
-            "archival": {"mode": "normal", "multiplier": 1.0},
-        }
-
-    def plan(self, fee_horizon: Dict[str, Any], network_state: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Main entrypoint:
-
-        Returns:
-            {
-                "version": "0.1.0",
-                "band": "normal|elevated|extreme|low|unknown",
-                "jobs": [
-                    {
-                        "name": "indexer",
-                        "base_concurrency": 4,
-                        "target_concurrency": 4,
-                        "mode": "normal",
-                    },
-                    ...
-                ],
-                "notes": "...",
-            }
-        """
-        band = fee_horizon.get("projected_fee_band", "unknown")
-        policy = self._policy_for_band(band)
-
-        jobs: List[Dict[str, Any]] = []
-        for name, base in self._base_concurrency.items():
-            cfg = policy.get(name, {"mode": "normal", "multiplier": 1.0})
-            target = int(round(base * float(cfg.get("multiplier", 1.0))))
-            if target < 0:
-                target = 0
-
-            jobs.append(
-                {
-                    "name": name,
-                    "base_concurrency": base,
-                    "target_concurrency": target,
-                    "mode": cfg.get("mode", "normal"),
-                }
-            )
-
-        notes = f"Scheduler based on band='{band}' and current median_fee={network_state.get('txn_median_fee')}."
+        jobs = []
+        for name, concurrency in cfg.items():
+            jobs.append({
+                "name": name,
+                "base_concurrency": self.defaults.get(name, concurrency),
+                "target_concurrency": concurrency,
+                "mode": band,
+            })
 
         return {
-            "version": "0.1.0",
+            "version": "0.2.0",
             "band": band,
             "jobs": jobs,
-            "notes": notes,
+            "notes": f"Scheduled using band='{band}', median_fee={median_fee}, load={load_factor}",
         }
